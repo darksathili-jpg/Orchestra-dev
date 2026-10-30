@@ -31,6 +31,17 @@ class RegistryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.r.transition(self.mission, "ATTENTE_VALIDATION_HUMAINE", "not tested")
 
+    def test_mission_brief(self):
+        self.r.add_criterion(self.mission, "One movement per instruction")
+        brief = self.r.mission_brief(self.mission)
+        self.assertIn("Microduck", brief)
+        self.assertIn("One movement per instruction", brief)
+        self.assertIn("sans modifier les fichiers", brief)
+
+    def test_unknown_mission_brief(self):
+        with self.assertRaises(KeyError):
+            self.r.mission_brief("missing")
+
     def test_no_agent_approval(self):
         for state in ("SPÉCIFIÉE", "PLAN_VALIDÉ", "EN_EXÉCUTION", "EN_VÉRIFICATION", "ATTENTE_VALIDATION_HUMAINE"):
             self.r.transition(self.mission, state, "progress")
