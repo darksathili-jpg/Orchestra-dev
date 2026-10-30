@@ -27,6 +27,7 @@ async function refresh() {
   $('criterionCount').textContent = data.criteria.filter(c => c.status === 'NON_VÉRIFIÉ').length;
   options($('projectSelect'), data.projects, p => p.name);
   options($('criterionMission'), data.missions, m => m.title);
+  options($('briefMission'), data.missions, m => m.title);
   for (const key of ['projects', 'missions', 'criteria']) $(key + 'List').replaceChildren();
   for (const p of data.projects) addItem($('projectsList'), p.name, p.repo || 'Dépôt non renseigné');
   for (const m of data.missions) addItem($('missionsList'), m.title, m.state);
@@ -49,3 +50,18 @@ bind('projectForm', '/api/projects');
 bind('missionForm', '/api/missions');
 bind('criterionForm', '/api/criteria');
 refresh().catch(error => { $('notice').textContent = 'Impossible de charger les données : ' + error.message; });
+
+$('briefButton').addEventListener('click', async () => {
+  const id = $('briefMission').value;
+  if (!id) { $('notice').textContent = 'Créez une mission avant de générer une consigne.'; return; }
+  try {
+    const data = await request('/api/brief/' + encodeURIComponent(id));
+    $('briefOutput').value = data.brief;
+  } catch (error) { $('notice').textContent = error.message; }
+});
+$('copyBrief').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText($('briefOutput').value);
+    $('notice').textContent = 'Consigne copiée. Collez-la dans Codex.';
+  } catch (error) { $('notice').textContent = 'Copie impossible : sélectionnez et copiez manuellement la consigne.'; }
+});
