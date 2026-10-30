@@ -24,6 +24,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
+        if self.headers.get("Host") not in (f"{HOST}:{PORT}",):
+            return self.send(403, {"error": "Host not allowed"})
         path = urlsplit(self.path).path
         if path == "/":
             self.send(200, (ROOT / "web" / "index.html").read_bytes(), "text/html; charset=utf-8")
@@ -31,6 +33,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, (ROOT / "web" / "app.js").read_bytes(), "text/javascript; charset=utf-8")
         elif path == "/style.css":
             self.send(200, (ROOT / "web" / "style.css").read_bytes(), "text/css; charset=utf-8")
+        elif path.startswith("/api/brief/"):
+            with Registry(DB) as registry:
+                try:
+                    self.send(200, {"brief": registry.mission_brief(path.removeprefix("/api/brief/"))})
+                except KeyError:
+                    self.send(404, {"error": "Unknown mission"})
         elif path == "/api/snapshot":
             with Registry(DB) as registry:
                 self.send(200, registry.snapshot())
@@ -38,6 +46,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send(404, {"error": "Not found"})
 
     def do_POST(self):
+        if self.headers.get("Host") not in (f"{HOST}:{PORT}",):
+            return self.send(403, {"error": "Host not allowed"})
         path = urlsplit(self.path).path
         if path not in ("/api/projects", "/api/missions", "/api/criteria", "/api/transition"):
             return self.send(404, {"error": "Not found"})
