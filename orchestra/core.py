@@ -112,5 +112,11 @@ class Registry:
             "events": [dict(r) for r in self.db.execute("SELECT * FROM events ORDER BY id")],
         }
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+
     def close(self):
         self.db.close()
