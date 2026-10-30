@@ -104,6 +104,30 @@ class Registry:
             self.db.execute("INSERT INTO events(mission_id,previous_state,next_state,reason,actor,timestamp) VALUES (?,?,?,?,?,?)",
                             (mission_id, current, target, reason.strip(), actor, now()))
 
+    def mission_brief(self, mission_id):
+        mission = self.db.execute("SELECT * FROM missions WHERE id=?", (mission_id,)).fetchone()
+        if mission is None:
+            raise KeyError("Unknown mission")
+        project = self.db.execute("SELECT * FROM projects WHERE id=?", (mission["project_id"],)).fetchone()
+        criteria = [r["description"] for r in self.db.execute(
+            "SELECT description FROM criteria WHERE mission_id=? ORDER BY rowid", (mission_id,))]
+        lines = [
+            "# Mission ORCHESTRA DEV (préparation manuelle)",
+            f"Projet : {project['name']}",
+            f"Dépôt : {project['repo'] or 'non renseigné'}",
+            f"Mission : {mission['title']}",
+            f"État : {mission['state']}",
+            "",
+            "Rôle : architecte. Analyse le projet et propose un plan sans modifier les fichiers.",
+            "Ne déclare aucun test réussi sans l'avoir exécuté.",
+            "Indique les fichiers concernés, risques, tests et validations humaines nécessaires.",
+            "Critères d'acceptation :",
+        ]
+        lines.extend(f"- {item}" for item in criteria)
+        if not criteria:
+            lines.append("- Aucun critère défini : demander une spécification avant exécution.")
+        return "\n".join(lines)
+
     def snapshot(self):
         return {
             "projects": [dict(r) for r in self.db.execute("SELECT * FROM projects ORDER BY created_at")],
