@@ -22,7 +22,7 @@ test('dashboard, mission brief and persistence', async ({ page }) => {
 
   await page.locator('#criterionMission').selectOption({ label: mission });
   await page.locator('#criterionForm input[name="description"]').fill(criterion);
-  await page.getByRole('button', { name: '+ Ajouter' }).click();
+  await page.getByRole('button', { name: '+ Ajouter', exact: true }).click();
   await expect(page.locator('#criteriaList')).toContainText(criterion);
   await expect(page.locator('#criteriaList')).toContainText('NON_VÉRIFIÉ');
 
