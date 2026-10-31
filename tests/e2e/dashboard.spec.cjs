@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 
-test('dashboard, mission brief and persistence', async ({ page }) => {
+test('dashboard, mission brief and persistence', async ({ page }, testInfo) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Tableau de bord' })).toBeVisible();
   await expect(page.getByRole('heading', { name: /Préparer une mission pour Codex/ })).toBeVisible();
@@ -30,7 +30,7 @@ test('dashboard, mission brief and persistence', async ({ page }) => {
   await page.getByRole('button', { name: 'Générer la consigne' }).click();
   await expect(page.locator('#briefOutput')).toHaveValue(new RegExp(criterion));
   await expect(page.locator('#briefOutput')).toHaveValue(/sans modifier les fichiers/);
-  await page.screenshot({ path: 'test-results/command-center.png', fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('command-center.png'), fullPage: true });
 
   await page.reload();
   await expect(page.locator('#projectsList')).toContainText(project);

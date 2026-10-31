@@ -28,6 +28,14 @@ TRANSITIONS = {
 def now():
     return datetime.now(timezone.utc).isoformat()
 
+class RevisionConflict(ValueError):
+    """The criteria changed since the caller examined them."""
+
+
+class AuthenticationRequired(PermissionError):
+    """No trusted authentication provider is available in this release."""
+
+
 class Registry:
     def __init__(self, path):
         self.path = Path(path)
@@ -54,6 +62,14 @@ class Registry:
                 previous_state TEXT, next_state TEXT NOT NULL,
                 reason TEXT NOT NULL, actor TEXT NOT NULL, timestamp TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS approval_decisions(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mission_id TEXT NOT NULL REFERENCES missions(id),
+                criteria_revision INTEGER NOT NULL, target TEXT NOT NULL,
+                outcome TEXT NOT NULL CHECK(outcome='REFUSED'),
+                reason TEXT NOT NULL, authenticated_subject TEXT,
+                timestamp TEXT NOT NULL
+            );
         """)
         # Additive, atomic and repeatable migration; never invent legacy evidence.
         with self.db:
@@ -62,6 +78,33 @@ class Registry:
             for column in ("evidence", "verified_at"):
                 if column not in columns:
                     self.db.execute(f"ALTER TABLE criteria ADD COLUMN {column} TEXT")
+            mission_columns = {row["name"] for row in self.db.execute("PRAGMA table_info(missions)")}
+            if "criteria_revision" not in mission_columns:
+                self.db.execute("ALTER TABLE missions ADD COLUMN criteria_revision INTEGER NOT NULL DEFAULT 0")
+            event_columns = {row["name"] for row in self.db.execute("PRAGMA table_info(events)")}
+            for column in ("verification_data", "verification_source"):
+                if column not in event_columns:
+                    self.db.execute(f"ALTER TABLE events ADD COLUMN {column} TEXT")
+            if "verification_data" not in event_columns:
+                # Import once. Legacy free text is explicitly marked untrusted.
+                for event in self.db.execute("SELECT * FROM events").fetchall():
+                    prefixes = ("Criterion verification: ", "Pending approval invalidated. Criterion verification: ")
+                    prefix = next((p for p in prefixes if event["reason"].startswith(p)), None)
+                    if prefix:
+                        try:
+                            result = json.loads(event["reason"][len(prefix):])
+                            fields = ("criterion_id", "status", "evidence", "verified_at")
+                            if not isinstance(result, dict) or any(not isinstance(result.get(k), str) or not result[k].strip() for k in fields):
+                                continue
+                            if result["status"] not in ("CONFORME", "NON_CONFORME"):
+                                continue
+                            if not self.db.execute("SELECT id FROM criteria WHERE id=? AND mission_id=?",
+                                                   (result["criterion_id"], event["mission_id"])).fetchone():
+                                continue
+                            self.db.execute("UPDATE events SET verification_data=?,verification_source='legacy-untrusted' WHERE id=?",
+                                            (json.dumps({k: result[k] for k in fields}, ensure_ascii=False), event["id"]))
+                        except (ValueError, TypeError):
+                            continue
 
     def add_project(self, name, repo=None):
         if not name.strip():
@@ -77,19 +120,20 @@ class Registry:
             raise ValueError("Mission title required")
         identifier = str(uuid4())
         with self.db:
-            self.db.execute("INSERT INTO missions VALUES (?,?,?,?,?)",
+            self.db.execute("INSERT INTO missions(id,project_id,title,state,created_at) VALUES (?,?,?,?,?)",
                             (identifier, project_id, title.strip(), "CRÉÉE", now()))
             self.db.execute("INSERT INTO events(mission_id,previous_state,next_state,reason,actor,timestamp) VALUES (?,?,?,?,?,?)",
                             (identifier, None, "CRÉÉE", "Mission created", actor, now()))
         return identifier
 
-    def add_criterion(self, mission_id, description):
+    def add_criterion(self, mission_id, description, *, expected_revision=None):
         if not description.strip():
             raise ValueError("Criterion description required")
         identifier = str(uuid4())
         with self.db:
             self.db.execute("BEGIN IMMEDIATE")
             current = self._editable_criteria_state(mission_id)
+            self._check_revision(mission_id, expected_revision)
             self.db.execute("INSERT INTO criteria(id,mission_id,description) VALUES (?,?,?)",
                             (identifier, mission_id, description.strip()))
             self._criterion_change(mission_id, current, f"Criterion added: {identifier}", "system")
@@ -104,16 +148,18 @@ class Registry:
         return row["state"]
 
     def _criterion_change(self, mission_id, current, reason, actor):
+        self.db.execute("UPDATE missions SET criteria_revision=criteria_revision+1 WHERE id=?", (mission_id,))
         target = current
         if current == "ATTENTE_VALIDATION_HUMAINE":
             target = "EN_VÉRIFICATION"
             reason = "Pending approval invalidated. " + reason
             self.db.execute("UPDATE missions SET state=? WHERE id=?", (target, mission_id))
-        self.db.execute(
+        event = self.db.execute(
             "INSERT INTO events(mission_id,previous_state,next_state,reason,actor,timestamp) VALUES (?,?,?,?,?,?)",
             (mission_id, current, target, reason, actor, now()))
+        return event.lastrowid
 
-    def record_verification(self, criterion_id, status, evidence, actor="human"):
+    def record_verification(self, criterion_id, status, evidence, actor="untrusted", *, expected_revision=None):
         """Store a declared result and UTC date, not an independently proven result.
 
         Any new result invalidates pending approval, including another CONFORME.
@@ -130,14 +176,17 @@ class Registry:
                 raise KeyError("Unknown criterion")
             mission_id = row["mission_id"]
             current = self._editable_criteria_state(mission_id)
+            self._check_revision(mission_id, expected_revision)
             verified_at = now()
             self.db.execute("UPDATE criteria SET status=?,evidence=?,verified_at=? WHERE id=?",
                             (status, evidence.strip(), verified_at, criterion_id))
-            reason = "Criterion verification: " + json.dumps({
+            verification = json.dumps({
                 "criterion_id": criterion_id, "status": status,
                 "evidence": evidence.strip(), "verified_at": verified_at,
             }, ensure_ascii=False)
-            self._criterion_change(mission_id, current, reason, actor)
+            event_id = self._criterion_change(mission_id, current, "Criterion verification: " + verification, actor)
+            self.db.execute("UPDATE events SET verification_data=?,verification_source='declared' WHERE id=?",
+                            (verification, event_id))
 
     def _require_verified_criteria(self, mission_id):
         criteria = self.db.execute(
@@ -150,9 +199,30 @@ class Registry:
                    for field in ("evidence", "verified_at")) for row in criteria):
             raise ValueError("All criteria must be CONFORME with evidence and a verification date")
 
-    def transition(self, mission_id, target, reason, actor="human"):
+    def _check_revision(self, mission_id, expected_revision):
+        row = self.db.execute("SELECT criteria_revision FROM missions WHERE id=?", (mission_id,)).fetchone()
+        if row is None:
+            raise KeyError("Unknown mission")
+        if expected_revision is not None and (
+                type(expected_revision) is not int or expected_revision != row[0]):
+            raise RevisionConflict("Les critères ont changé. Rechargez la mission avant de réessayer.")
+
+    def transition(self, mission_id, target, reason, actor="untrusted", *, expected_revision=None):
         if not reason.strip():
             raise ValueError("Reason required")
+        # Fail closed for ALL callers, including the HTTP server and actor='human'.
+        # The refusal is committed before raising; it must survive rollback of the request.
+        if target in {"VALIDÉE", "PUBLIÉE"}:
+            with self.db:
+                self.db.execute("BEGIN IMMEDIATE")
+                row = self.db.execute("SELECT criteria_revision FROM missions WHERE id=?", (mission_id,)).fetchone()
+                if row is None:
+                    raise KeyError("Unknown mission")
+                self.db.execute(
+                    "INSERT INTO approval_decisions(mission_id,criteria_revision,target,outcome,reason,timestamp) "
+                    "VALUES (?,?,?,'REFUSED',?,?)",
+                    (mission_id, row[0], target, "Authentification humaine isolée indisponible", now()))
+            raise AuthenticationRequired("Approbation indisponible : authentification humaine isolée requise.")
         with self.db:
             # Lock before reading: another connection cannot change criteria
             # between the gate check and the state/event writes.
@@ -161,15 +231,54 @@ class Registry:
             if row is None:
                 raise KeyError("Unknown mission")
             current = row["state"]
+            self._check_revision(mission_id, expected_revision)
             if target not in TRANSITIONS[current]:
                 raise ValueError(f"Forbidden transition: {current} -> {target}")
-            if target in {"VALIDÉE", "PUBLIÉE"} and actor != "human":
-                raise PermissionError("Human approval required")
             if target in {"ATTENTE_VALIDATION_HUMAINE", "VALIDÉE", "PUBLIÉE"}:
                 self._require_verified_criteria(mission_id)
             self.db.execute("UPDATE missions SET state=? WHERE id=?", (target, mission_id))
             self.db.execute("INSERT INTO events(mission_id,previous_state,next_state,reason,actor,timestamp) VALUES (?,?,?,?,?,?)",
                             (mission_id, current, target, reason.strip(), actor, now()))
+
+    def mission_review(self, mission_id):
+        """Return a consistent review, without interpreting actor labels as identities."""
+        with self.db:
+            self.db.execute("BEGIN")
+            row = self.db.execute("SELECT * FROM missions WHERE id=?", (mission_id,)).fetchone()
+            if row is None:
+                raise KeyError("Unknown mission")
+            mission = dict(row)
+            criteria = [dict(r) for r in self.db.execute(
+                "SELECT * FROM criteria WHERE mission_id=? ORDER BY rowid", (mission_id,))]
+            events = [dict(r) for r in self.db.execute(
+                "SELECT * FROM events WHERE mission_id=? ORDER BY id", (mission_id,))]
+            decisions = [dict(r) for r in self.db.execute(
+                "SELECT * FROM approval_decisions WHERE mission_id=? ORDER BY id", (mission_id,))]
+        blockers = [] if criteria else ["Aucun critère d'acceptation."]
+        for criterion in criteria:
+            missing = []
+            if criterion["status"] != "CONFORME":
+                missing.append(criterion["status"])
+            for field, label in (("evidence", "preuve absente"), ("verified_at", "date absente")):
+                if not isinstance(criterion[field], str) or not criterion[field].strip():
+                    missing.append(label)
+            if missing:
+                blockers.append(criterion["description"] + " : " + ", ".join(missing))
+        history = []
+        for event in events:
+            if event["verification_data"]:
+                try:
+                    result = json.loads(event["verification_data"])
+                    if isinstance(result, dict) and {"criterion_id", "status", "evidence", "verified_at"} <= result.keys():
+                        history.append({**{key: result[key] for key in ("criterion_id", "status", "evidence", "verified_at")},
+                                        "source": event["verification_source"]})
+                except (ValueError, TypeError):
+                    pass
+        return {"mission": mission, "criteria": criteria, "blockers": blockers,
+                "verification_history": history, "events": events, "decisions": decisions,
+                "approval_available": False,
+                "approval_blocker": "Authentification humaine isolée indisponible : approbation et publication bloquées.",
+                "allowed_transitions": sorted(TRANSITIONS.get(mission["state"], set()) - {"VALIDÉE", "PUBLIÉE"})}
 
     def mission_brief(self, mission_id):
         mission = self.db.execute("SELECT * FROM missions WHERE id=?", (mission_id,)).fetchone()

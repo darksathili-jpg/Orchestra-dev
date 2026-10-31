@@ -1,11 +1,46 @@
 <!doctype html>
-<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ORCHESTRA DEV · Command Center</title><link rel="stylesheet" href="/style.css"></head>
-<body><div class="shell"><aside class="sidebar"><div class="brand"><span class="mark">◈</span><div>ORCHESTRA <b>DEV</b><small>MISSION CONTROL · V0.2</small></div></div><nav><a class="active" href="#projects">◉ &nbsp; Projets</a><a href="#missions">▦ &nbsp; Missions</a><a href="#evidence">◇ &nbsp; Preuves</a></nav><div class="aside-foot"><span class="led"></span> MODE LOCAL<br><small>Aucun agent connecté</small></div></aside>
-<main><header><div><div class="eyebrow">COMMAND CENTER / LOCAL WORKSPACE</div><h1>Tableau de bord</h1><p>Supervisez vos projets et définissez des missions vérifiables.</p></div><span class="badge">V0.2 · PRÉPARATION</span></header>
-<section class="stats"><article><span>PROJETS</span><strong id="projectCount">0</strong></article><article><span>MISSIONS</span><strong id="missionCount">0</strong></article><article><span>CRITÈRES NON VÉRIFIÉS</span><strong id="criterionCount">0</strong></article></section>
-<div id="notice" role="status" aria-live="polite"></div>
-<div class="columns"><section class="panel" id="projects"><div class="panel-title"><h2>01 / Projets</h2><span>REGISTRE</span></div><form id="projectForm"><label>Nom du projet<input name="name" maxlength="100" required placeholder="Ex. Microduck Lab"></label><label>Dépôt Git (facultatif)<input name="repo" maxlength="400" placeholder="owner/repository"></label><button>+ Ajouter le projet</button></form><div id="projectsList" class="items"></div></section>
-<section class="panel" id="missions"><div class="panel-title"><h2>02 / Missions</h2><span>WORKFLOW</span></div><form id="missionForm"><label>Projet<select name="project_id" id="projectSelect" required></select></label><label>Intitulé de la mission<input name="title" maxlength="160" required placeholder="Ex. Vérifier les déplacements"></label><button>+ Créer une mission</button></form><div id="missionsList" class="items"></div></section></div>
-<section class="panel evidence" id="agent"><div class="panel-title"><h2>03 / Préparer une mission pour Codex</h2><span>ASSISTED HANDOFF</span></div><p>Générez une consigne structurée à copier dans Codex. Aucune exécution automatique n'est effectuée.</p><label>Mission<select id="briefMission"></select></label><button type="button" id="briefButton">Générer la consigne</button><label>Consigne pour l'agent<textarea id="briefOutput" rows="12" readonly aria-label="Consigne générée"></textarea></label><button type="button" id="copyBrief">Copier la consigne</button></section><section class="panel evidence" id="evidence"><div class="panel-title"><h2>04 / Critères d'acceptation</h2><span>EVIDENCE LAB</span></div><p>Chaque critère est créé avec le statut <b>NON_VÉRIFIÉ</b>. La validation automatique sera ajoutée dans une prochaine version.</p><form id="criterionForm" class="inline-form"><label>Mission<select id="criterionMission" name="mission_id" required></select></label><label>Critère<input name="description" maxlength="400" required placeholder="Ex. Aucune collision pendant les déplacements"></label><button>+ Ajouter</button></form><div id="criteriaList" class="items"></div></section>
-<footer>ORCHESTRA DEV · Local-first · Aucune publication automatique · Les agents ne sont pas encore activés.</footer></main></div><script src="/app.js" defer></script></body></html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ORCHESTRA DEV · Command Center</title><link rel="stylesheet" href="/style.css">
+</head>
+<body><div class="shell">
+<aside class="sidebar">
+  <div class="brand"><span class="mark">◈</span><div>ORCHESTRA <b>DEV</b><small>MISSION CONTROL · V0.3.2</small></div></div>
+  <nav><a class="active" href="#projects">◉ &nbsp; Projets</a><a href="#missions">▦ &nbsp; Missions</a><a href="#review">◇ &nbsp; Vérifications et preuves</a></nav>
+  <div class="aside-foot"><span class="led"></span> MODE LOCAL<br><small>Approbation sécurisée indisponible</small></div>
+</aside>
+<main>
+  <header><div><div class="eyebrow">COMMAND CENTER / LOCAL WORKSPACE</div><h1>Tableau de bord</h1><p>Mission → Critères → Vérification → Preuves → Approbation humaine</p></div>
+    <div class="header-actions"><span class="badge">V0.3.2 · VÉRIFICATION</span><button type="button" id="themeToggle" aria-pressed="false">Mode clair</button></div>
+  </header>
+  <section class="stats"><article><span>PROJETS</span><strong id="projectCount">0</strong></article><article><span>MISSIONS</span><strong id="missionCount">0</strong></article><article><span>CRITÈRES NON VÉRIFIÉS</span><strong id="criterionCount">0</strong></article></section>
+  <div id="notice" role="status" aria-live="polite"></div>
+  <div class="columns">
+    <section class="panel" id="projects"><div class="panel-title"><h2>01 / Projets</h2><span>REGISTRE</span></div>
+      <form id="projectForm"><label>Nom du projet<input name="name" maxlength="100" required placeholder="Ex. Microduck Lab"></label><label>Dépôt Git (facultatif)<input name="repo" maxlength="400" placeholder="owner/repository"></label><button>+ Ajouter le projet</button></form><div id="projectsList" class="items"></div>
+    </section>
+    <section class="panel" id="missions"><div class="panel-title"><h2>02 / Missions</h2><span>WORKFLOW</span></div>
+      <form id="missionForm"><label>Projet<select name="project_id" id="projectSelect" required></select></label><label>Intitulé de la mission<input name="title" maxlength="160" required placeholder="Ex. Vérifier les déplacements"></label><button>+ Créer une mission</button></form><div id="missionsList" class="items"></div>
+    </section>
+  </div>
+  <section class="panel evidence" id="agent"><div class="panel-title"><h2>03 / Préparer une mission pour Codex</h2><span>CONSIGNE</span></div><p>Générez une consigne structurée à copier dans Codex. Aucune exécution automatique n'est effectuée.</p><label>Mission<select id="briefMission"></select></label><button type="button" id="briefButton">Générer la consigne</button><label>Consigne pour l'agent<textarea id="briefOutput" rows="12" readonly aria-label="Consigne générée"></textarea></label><button type="button" id="copyBrief">Copier la consigne</button></section>
+  <section class="panel evidence" id="evidence"><div class="panel-title"><h2>04 / Critères d'acceptation</h2><span>CRITÈRES</span></div><p>Un nouveau critère est NON_VÉRIFIÉ. Tout ajout invalide une demande d'approbation en attente.</p>
+    <form id="criterionForm" class="inline-form"><label>Mission<select id="criterionMission" name="mission_id" required></select></label><label>Critère<input name="description" maxlength="400" required placeholder="Ex. Aucune collision pendant les déplacements"></label><button>+ Ajouter</button></form><div id="criteriaList" class="items"></div>
+  </section>
+  <section class="panel evidence" id="review"><div class="panel-title"><h2>05 / Vérification et approbation</h2><span>PREUVES</span></div>
+    <label>Mission à examiner<select id="reviewMission"></select></label>
+    <button type="button" id="reloadReview">Actualiser la mission</button>
+    <p id="reviewState" role="status"></p>
+    <h3>Critères bloquants</h3><ul id="blockers"></ul>
+    <p>Enregistrez uniquement des résultats constatés, avec une référence de rapport ou une description explicite de la preuve. Ne saisissez aucun secret. Ces déclarations ne sont pas des décisions humaines authentifiées.</p>
+    <div id="verificationList" class="items"></div>
+    <h3>Parcours de la mission</h3>
+    <form id="transitionForm"><label>Prochaine étape<select id="nextState" required></select></label><label>Motif<input name="reason" maxlength="1000" required></label><button id="transitionButton" disabled>Enregistrer l'étape</button></form>
+    <div class="approval-block"><h3>Approbation humaine</h3><p id="approvalBlocker">Authentification humaine isolée indisponible : approbation et publication bloquées.</p><button id="approveButton" type="button" disabled aria-describedby="approvalBlocker">Approuver la mission — indisponible</button></div>
+    <details open><summary>Historique des vérifications</summary><div id="verificationHistory" class="items"></div></details>
+    <details open><summary>Décisions et refus d'approbation</summary><p>Aucune nouvelle décision humaine authentifiée n'est possible dans cette version.</p><div id="decisionHistory" class="items"></div></details>
+    <details><summary>Journal du parcours</summary><div id="workflowHistory" class="items"></div></details>
+  </section>
+  <footer>ORCHESTRA DEV · Local-first · Aucune publication automatique · Authentification humaine à intégrer.</footer>
+</main></div><script src="/app.js" defer></script></body></html>
